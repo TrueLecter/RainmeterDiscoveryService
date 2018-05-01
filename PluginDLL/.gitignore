@@ -2,7 +2,7 @@ bin
 obj
 x32
 x64
-.vs
+.vs/
 *.opensdf
 *.sdf
 *.user
