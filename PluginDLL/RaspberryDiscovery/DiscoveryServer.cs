@@ -72,6 +72,8 @@ namespace RaspberryDiscovery
 
         public void UpdateRegistry()
         {
+            LastClientsCountSpotted = ClientsCount;
+
             foreach (var raspberry in _raspberries)
             {
                 try

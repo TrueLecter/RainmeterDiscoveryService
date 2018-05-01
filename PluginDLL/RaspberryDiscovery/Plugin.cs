@@ -11,7 +11,7 @@ namespace RaspberryDiscovery
     {
         private const string Separator = "\n";
         private const string EntryFormat = "{0}: {1}";
-        private const int EntryMode = 0;
+        private const int EntryMode = 1;
 
         [DllExport]
         public static void Initialize(ref IntPtr data, IntPtr rm)
@@ -52,6 +52,11 @@ namespace RaspberryDiscovery
 
             if (server.EntriesMode == 0)
             {
+                for (var j = server.ClientsCount; j < server.LastClientsCountSpotted; j++)
+                {
+                    server.Api.Execute($"!SetVariable RPI{j} \"\"");
+                }
+
                 var i = 0;
 
                 foreach (var raspberry in server.Raspberries)
