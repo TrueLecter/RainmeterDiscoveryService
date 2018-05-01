@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Rainmeter;
 
@@ -31,6 +32,7 @@ namespace RaspberryDiscovery
             server.Separator = rm.ReadString("EntriesSeparator", Separator);
             server.EntryFormat = rm.ReadString("EntryFormat", EntryFormat).Replace("\n", "");
             server.EntriesMode = rm.ReadInt("EntriesMode", EntryMode);
+            server.NoDevicesDetected = rm.ReadString("NoDevicesDetected", "No devices detected");
         }
 
         [DllExport]
@@ -66,14 +68,13 @@ namespace RaspberryDiscovery
             }
             else
             {
-                var reps = new List<string>();
-
-                foreach (var raspberry in server.Raspberries)
-                {
-                    reps.Add(string.Format(server.EntryFormat, raspberry.Name, raspberry.Address));
-                }
-
-                var str = string.Join(server.Separator, reps.ToArray());
+                var str = server.ClientsCount == 0 ? 
+                    server.NoDevicesDetected : 
+                    string.Join(server.Separator, 
+                        server.Raspberries.Select(
+                            raspberry => string.Format(server.EntryFormat, raspberry.Name, raspberry.Address)
+                        ).ToArray()
+                    );
 
                 server.Api.Execute($"!SetVariable RPIS \"{str}\"");
             }

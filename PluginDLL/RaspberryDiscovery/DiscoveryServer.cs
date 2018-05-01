@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -7,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Timers;
 using Rainmeter;
 using Timer = System.Timers.Timer;
@@ -19,38 +21,29 @@ namespace RaspberryDiscovery
         private const string ResponseDataDuplicate = "AlreadyAccepted";
         private const string RquestSendNotifications = "CollectingBroadcasts";
 
-        private readonly List<DiscoveredHost> _raspberries = new List<DiscoveredHost>();
+        private readonly ConcurrentDictionary<IPAddress, DiscoveredHost> _raspberries = new ConcurrentDictionary<IPAddress, DiscoveredHost>();
         private readonly Regex _raspberryRegex = new Regex(@"hostname:([\d\w_-]*);?");
         private readonly Log _log;
-        private readonly Ping _ping = new Ping();
         private readonly Timer _timer;
-
+        
         private Thread _currentThread;
         private UdpClient _server;
         private int _port;
 
         public API Api { get; set; }
-        public IList<DiscoveredHost> Raspberries => new List<DiscoveredHost>(_raspberries);
+        public IList<DiscoveredHost> Raspberries => new List<DiscoveredHost>(_raspberries.Values);
         public int ClientsCount => _raspberries.Count;
 
         public int LastClientsCountSpotted { get; set; } = -1;
         public string Separator { get; set; }
         public string EntryFormat { get; set; }
         public int EntriesMode { get; set; }
-
+        public string NoDevicesDetected { get; set; }
 
         public DiscoveryServer(Log log)
         {
             _log = log;
-
-            _ping.PingCompleted += (sender, args) =>
-            {
-                if (args.Reply.Status == IPStatus.Success || !(args.UserState is DiscoveredHost raspberry)) return;
-
-                Log(API.LogType.Debug, $"{args.UserState} went unresponsible! Removing from registry...");
-                _raspberries.Remove(raspberry);
-            };
-
+            
             _timer = new Timer
             {
                 Interval = 60 * 1000,
@@ -74,22 +67,27 @@ namespace RaspberryDiscovery
         {
             LastClientsCountSpotted = ClientsCount;
 
-            foreach (var raspberry in _raspberries)
+            Parallel.ForEach(_raspberries, host =>
             {
                 try
                 {
-                    _ping.SendAsync(raspberry.Address, 5, raspberry);
+                    var ping = new Ping();
+
+                    if (ping.Send(host.Value.Address)?.Status == IPStatus.Success) return;
+
+                    _raspberries.TryRemove(host.Key, out var ignored);
+                    Log(API.LogType.Warning, "Lost connection with {0}", host.Value);
                 }
                 catch (Exception e)
                 {
-                    Log(API.LogType.Warning, "Error while pinging {0}: {1}", raspberry.Address, e.Message);
+                    Log(API.LogType.Warning, "Error while pinging {0}: {1}", host.Value.Address, e.Message);
                 }
-            }
+            });
         }
 
         public DiscoveredHost GetByIndex(int index)
         {
-            return index > _raspberries.Count ? null : _raspberries[index];
+            return index > _raspberries.Count ? null : _raspberries.ToArray()[index].Value;
         }
 
         private void Log(API.LogType type, string format, params object[] args)
@@ -117,15 +115,15 @@ namespace RaspberryDiscovery
                     {
                         var r = new DiscoveredHost(match.Groups[1].Value, clientEp.Address);
 
-                        if (_raspberries.Contains(r))
+                        if (_raspberries.ContainsKey(clientEp.Address))
                         {
                             SendString(_server, ResponseDataDuplicate, clientEp);
                             continue;
                         }
 
-                        _raspberries.Add(r);
+                        _raspberries.TryAdd(clientEp.Address, r);
                         SendString(_server, ResponseDataSuccess, clientEp);
-                        Log(API.LogType.Debug, $"We got a new client! {_raspberries[_raspberries.Count - 1]}");
+                        Log(API.LogType.Debug, $"We got a new client! {r}");
                     }
                     else
                     {
